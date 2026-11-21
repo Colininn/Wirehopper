@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<!-- saved from url=(0062)https://wire-hopper-recess-482.ablazesandpiper17.chatgpt.site/ -->
+<html lang="en"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Wire Hopper</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#122634;color:#fff4da;font:600 16px system-ui;display:grid;place-content:center;min-height:100svh;padding:14px}main{width:min(1050px,94vw)}header,footer{display:flex;align-items:center;justify-content:space-between;gap:12px}h1{font:bold clamp(24px,5vw,49px) Georgia;margin:0 0 8px;letter-spacing:-2px}header span{font-size:14px;color:#f7c18b}section{position:relative;overflow:hidden;border:3px solid #f7d7a0;border-radius:15px}canvas{display:block;width:100%;height:min(62svh,500px);touch-action:none;cursor:grab}#score{position:absolute;top:10px;left:50%;transform:translateX(-50%);font:bold 44px Georgia;color:#243747;pointer-events:none}button{background:#ffcd70;color:#18343e;padding:10px 20px;border:0;border-radius:8px;font-weight:800;cursor:pointer}dialog{background:#153442;color:#fff3cf;border:2px solid #ffe1a8;border-radius:14px;text-align:center}dialog::backdrop{background:#18324077}footer{margin-top:10px;font-size:14px;color:#f4d6ae}kbd{color:white}
+
+#coins{position:fixed;right:16px;top:12px;z-index:20;background:#ffcf67;color:#19333f;padding:10px 18px;border-radius:24px;border:2px solid #fff0ac}body{padding-top:62px}
+.panel{position:absolute;inset:0;background:#153442ed;overflow:auto;padding:24px;text-align:center}.panel[hidden]{display:none}.panel h2{font: bold 36px Georgia}.home-actions{display:flex;gap:12px;justify-content:center}.catalog{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}.catalog{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}.card{background:#213f4b;padding:18px 10px;border:1px solid #52717b;border-radius:12px}.card h3{margin:8px 0}.card small{display:block;color:#c8d9db;margin-bottom:10px}.bird-icon{display:block;width:160px;max-width:100%;height:80px;margin:0 auto;cursor:default;touch-action:auto}button:disabled{opacity:.5;cursor:default}#shop-message{min-height:24px}dialog{position:absolute;inset:0;margin:auto;width:280px;z-index:5}#home-preview{font-size:70px;margin:15px}footer button{padding:8px}header{padding-right:5px}
+</style></head><body><output id="coins" aria-label="Coin balance">🪙 14</output><main><header><h1>Wire Hopper</h1><span id="best">Best  14</span></header><section><canvas aria-label="Slingshot bird game. Pull down and release, or hold and release Space. Pull straight down to aim high. Drag back to aim farther." width="1307" height="530"></canvas><output id="score">0</output><div id="home" class="panel" hidden=""><h2>Wire Hopper</h2><div id="home-preview"><canvas class="bird-icon" width="320" height="160" role="img" aria-label="Wire Bird skin"></canvas></div><p>Hop farther. Collect coins. Find your favorite bird.</p><div class="home-actions"><button id="play">Play</button><button id="open-shop">Shop</button></div></div><div id="shop" class="panel" hidden=""><button id="back">Back</button><h2>Bird shop</h2><p>1 pole = 1 coin · All skins are cosmetic</p><div id="catalog" class="catalog"></div><p id="shop-message" role="status"></p></div><dialog open=""><h2>The wire snapped!</h2><p id="result">0 poles passed</p><button id="again">Play again</button> <button id="end-home">Home</button></dialog></section><footer><span>Keep ahead of the left edge! Pull down to jump high, down-left to go farther.</span><button id="menu">Home</button><kbd>Hold Space to launch</kbd></footer></main>
+<script>
+const canvas=document.querySelector('canvas'), ctx=canvas.getContext('2d'), dialog=document.querySelector('dialog');
+const spacing=220, gravity=760;
+let width,height=450,scale,x,y,vx,vy,camera,pull,mode,startY,pointer,keyHeld,score,lastPole,best=0,previous=0;
+try{best=Number(localStorage.wireHopperBest)||0}catch{}
+const skins=[
+ {id:'starter',name:'Wire Bird',rarity:'Starter',price:0,body:'#244355',wing:'#568799'},
+ {id:'sparrow',name:'Sparrow',rarity:'Common',price:30,body:'#946443',wing:'#d2a875'},
+ {id:'robin',name:'Robin',rarity:'Common',price:60,body:'#bb4a38',wing:'#664535'},
+ {id:'canary',name:'Canary',rarity:'Uncommon',price:120,body:'#f4cf39',wing:'#f6ed9e'},
+ {id:'parakeet',name:'Parakeet',rarity:'Uncommon',price:200,body:'#59ae69',wing:'#b5e15c'},
+ {id:'bluejay',name:'Blue Jay',rarity:'Rare',price:350,body:'#337de0',wing:'#99d5ff'},
+ {id:'raven',name:'Raven',rarity:'Epic',price:600,body:'#27223b',wing:'#8069a0'},
+ {id:'gold',name:'Golden Eagle',rarity:'Legendary',price:1000,body:'#e8b136',wing:'#fff1a2'},
+ {id:'phoenix',name:'Phoenix',rarity:'Mythic',price:10000,body:'#f45729',wing:'#ffd344'}
+];
+let wallet={coins:0,owned:['starter'],equipped:'starter'};
+try{
+ const saved=JSON.parse(localStorage.getItem('wireHopperShop'));
+ if(saved && Number.isSafeInteger(saved.coins) && saved.coins>=0){
+  wallet.coins=saved.coins;
+  wallet.owned=['starter',...skins.filter(b=>b.id!=='starter' && Array.isArray(saved.owned) && saved.owned.includes(b.id)).map(b=>b.id)];
+  wallet.equipped=wallet.owned.includes(saved.equipped)?saved.equipped:'starter';
+ }
+}catch{}
+function saveWallet(){
+ document.querySelector('#coins').textContent='🪙 '+wallet.coins.toLocaleString();
+ try{localStorage.setItem('wireHopperShop',JSON.stringify(wallet))}catch{}
+}
+function selectedBird(){return skins.find(b=>b.id===wallet.equipped)}
+function showHome(){
+ dialog.close();
+ reset();
+ mode='home';
+ document.querySelector('#home').hidden=false;
+ document.querySelector('#shop').hidden=true;
+ document.querySelector('#home-preview').replaceChildren(birdPreview(selectedBird()));
+}
+function shop(){
+ mode='shop';
+ document.querySelector('#home').hidden=true;
+ document.querySelector('#shop').hidden=false;
+ const catalog=document.querySelector('#catalog');
+ catalog.replaceChildren();
+ for(const bird of skins){
+  const card=document.createElement('article');card.className='card';
+  card.append(birdPreview(bird));
+  const details=document.createElement('div');
+  details.innerHTML='<h3>'+bird.name+'</h3><small>'+bird.rarity+' · '+bird.price.toLocaleString()+' coins</small>';
+  card.append(details);
+  const button=document.createElement('button');
+  const owned=wallet.owned.includes(bird.id);
+  button.textContent=wallet.equipped===bird.id?'Equipped':owned?'Equip':'Buy';
+  button.disabled=wallet.equipped===bird.id || (!owned && wallet.coins<bird.price);
+  button.onclick=()=>purchase(bird.id);
+  card.append(button);catalog.append(card);
+ }
+}
+function purchase(id){
+ const bird=skins.find(b=>b.id===id);
+ if(!bird)return;
+ if(!wallet.owned.includes(id)){
+  if(wallet.coins<bird.price)return;
+  wallet.coins-=bird.price;
+  wallet.owned.push(id);
+ }
+ wallet.equipped=id;saveWallet();shop();
+ document.querySelector('#shop-message').textContent=bird.name+' equipped';
+}
+function play(){
+ dialog.close();reset();
+ document.querySelector('#home').hidden=true;
+ document.querySelector('#shop').hidden=true;
+}
+function pole(i){return 266+12*Math.sin(i*1.8)}
+function spikes(i){return i>=2 && i%5!==3 ? 18+12*(1+Math.sin(i*3.1)):0}
+function wire(pos){let i=Math.floor(pos/spacing), t=pos/spacing-i;return pole(i)*(1-t)+pole(i+1)*t+4*18*t*(1-t)}
+function perch(){return wire(x)-10}
+let startX, backPull=0;
+let breakTime=0, brokenPole=-1, brokenSpan=-1;
+function fallBehind(){
+ mode='breaking';
+ breakTime=0;
+ brokenSpan=Math.floor(x/spacing);
+ brokenPole=brokenSpan+1;
+ pointer=null;
+ keyHeld=false;
+ pull=0;
+ vx=22;
+ vy=-55;
+}
+
+function elevation(){
+ const next=Math.floor(x/spacing)+1;
+ const closeSpike=spikes(next) && next*spacing-x<65;
+ const degrees=(closeSpike ? Math.min(82, 93-(next*spacing-x)*.5) : 62)-Math.min(35,backPull*.5);
+ return degrees*Math.PI/180;
+}
+function launchSpeed(){return 290+pull*3.1}
+function reset(){breakTime=0;brokenPole=brokenSpan=-1;backPull=0;x=110;camera=-24;pull=0;mode='ready';pointer=null;keyHeld=false;score=lastPole=0;y=perch();document.querySelector('#score').value=0;document.querySelector('#best').textContent='Best  '+best}
+function launch(){if(mode!=='ready')return;if(pull>=5){const angle=elevation(), speed=launchSpeed();vx=speed*Math.cos(angle);vy=-speed*Math.sin(angle);y=perch();mode='flying'}backPull=0;pull=0;y=mode==='ready'?perch():y}
+function lose(reason='Clipped a spike!'){dialog.querySelector('h2').textContent=reason;mode='over';best=Math.max(best,score);try{localStorage.wireHopperBest=best}catch{}document.querySelector('#best').textContent='Best  '+best;document.querySelector('#result').textContent=score+' '+(score===1?'pole':'poles')+' passed';dialog.show()}
+document.querySelector('#again').onclick=play;
+document.querySelector('#end-home').onclick=showHome;
+document.querySelector('#menu').onclick=showHome;
+document.querySelector('#play').onclick=play;
+document.querySelector('#open-shop').onclick=shop;
+document.querySelector('#back').onclick=showHome;
+canvas.onpointerdown=e=>{if(mode!=='ready'||pointer!==null||keyHeld)return;pointer=e.pointerId;startY=e.clientY;startX=e.clientX;backPull=0;canvas.setPointerCapture(pointer)};
+canvas.onpointermove=e=>{if(e.pointerId!==pointer)return;backPull=Math.max(0,(startX-e.clientX)/scale);pull=Math.min(85,Math.max(0,(e.clientY-startY)/scale))};
+canvas.onpointerup=e=>{if(e.pointerId===pointer){pointer=null;y=perch()+pull;launch()}};
+canvas.onpointercancel=()=>{pointer=null;backPull=0;pull=0};
+onkeydown=e=>{if(e.code==='Space'&&!dialog.open){e.preventDefault();if(!e.repeat&&mode==='ready'&&pointer===null)keyHeld=true}};
+onkeyup=e=>{if(e.code==='Space'&&keyHeld){keyHeld=false;launch()}};
+onblur=()=>{keyHeld=false;pointer=null;backPull=0;pull=0};
+function step(dt){
+ if(['over','home','shop'].includes(mode))return;
+ if(mode==='breaking'){
+  breakTime+=dt;
+  x+=vx*dt;
+  y+=vy*dt;
+  vy+=gravity*dt;
+  if(breakTime>=1.35)lose('The wire snapped!');
+  return;
+ }
+ // Ramp smoothly with distance, reaching triple speed at the 50th pole.
+ const progress = Math.max(0, Math.min(1, (x - 110) / (50 * spacing - 110)));
+ const scrollSpeed = 38 * (1 + 2 * progress);
+ camera += scrollSpeed * dt;
+ if(x-camera<44){fallBehind();return}
+
+ if(mode==='ready'){if(keyHeld)pull=Math.min(85,pull+100*dt);y=perch()+pull}
+ if(mode!=='flying')return;
+ let oldY=y,oldX=x;x+=vx*dt;y+=vy*dt;vy+=gravity*dt;
+ let i=Math.round(x/spacing),dx=Math.abs(x-i*spacing),s=spikes(i);
+ if(s&&dx<18&&y+8>pole(i)-s*(1-Math.max(0,dx-7)/11)&&y-7<pole(i)+2){lose();return}
+ let passed=Math.floor(x/spacing);if(passed>lastPole){wallet.coins+=passed-lastPole;saveWallet();score+=passed-lastPole;lastPole=passed;document.querySelector('#score').value=score}
+ if(vy>0&&oldY+10<=wire(oldX)&&y+10>=wire(x)){mode='ready';y=perch()}
+ camera=Math.max(camera,x-width*.72)
+}
+function shape(points,color){ctx.fillStyle=color;ctx.beginPath();points.forEach(([a,b],i)=>i?ctx.lineTo(a,b):ctx.moveTo(a,b));ctx.closePath();ctx.fill()}
+function oval(a,b,r,h,c){ctx.fillStyle=c;ctx.beginPath();ctx.ellipse(a,b,r,h,0,0,7);ctx.fill()}
+function drawBird(target,x,y,bird){
+ function paintShape(points,color){
+  target.fillStyle=color;target.beginPath();
+  points.forEach(([a,b],i)=>i?target.lineTo(a,b):target.moveTo(a,b));
+  target.closePath();target.fill();
+ }
+ function paintOval(a,b,r,h,color){
+  target.fillStyle=color;target.beginPath();
+  target.ellipse(a,b,r,h,0,0,7);target.fill();
+ }
+
+ if(bird.id==='phoenix'){
+  paintShape([[x-10,y-4],[x-42,y-18],[x-28,y],[x-44,y+15],[x-12,y+8]],'#ed482b');
+  paintShape([[x-13,y],[x-34,y-7],[x-25,y+3],[x-35,y+9]],'#ffcf42');
+  paintShape([[x+2,y-10],[x,y-24],[x+9,y-16],[x+14,y-23],[x+14,y-7]],'#ffcf42');
+ }
+ paintShape([[x-9,y],[x-23,y-8],[x-19,y+4]],bird.body);paintOval(x,y,15,11,bird.body);paintOval(x+6,y-5,10,10,bird.body);paintOval(x-4,y+2,9,5,bird.wing);paintOval(x+9,y-7,2.2,2.2,'#ffefcf');paintShape([[x+15,y-6],[x+24,y-3],[x+15,y]],'#e79034');
+}
+function birdPreview(bird){
+ const preview=document.createElement('canvas');
+ preview.className='bird-icon';
+ preview.width=320;preview.height=160;
+ preview.setAttribute('role','img');
+ preview.setAttribute('aria-label',bird.name+' skin');
+ const target=preview.getContext('2d');
+ target.scale(4,4);
+ drawBird(target,49,25,bird);
+ return preview;
+}
+
+function draw(){
+ let r=canvas.getBoundingClientRect();scale=Math.min(r.height/450,r.width/510);width=r.width/scale;height=r.height/scale;
+ let d=devicePixelRatio||1;let w=Math.round(r.width*d),h=Math.round(r.height*d);if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h}
+ ctx.setTransform(scale*d,0,0,scale*d,0,0);
+ let sky=ctx.createLinearGradient(0,0,0,height);sky.addColorStop(0,'#88c9ca');sky.addColorStop(.65,'#ffe5b9');sky.addColorStop(1,'#efa578');ctx.fillStyle=sky;ctx.fillRect(0,0,width,height);
+ oval(width*.77,95,42,42,'#fff2bc');
+ for(let j=0;j<2;j++){let pts=[[0,height]];for(let n=-1;n<=width/18+1;n++){let u=n*18+camera*(.12+j*.13);pts.push([n*18, height-95+j*52+29*Math.sin(u*.012)+15*Math.sin(u*.027)])}pts.push([width,height]);shape(pts,j?'#548584':'#96b7a2')}
+ ctx.save();ctx.translate(-camera,0);
+ for(let i=Math.max(0,Math.floor(camera/spacing));i<(camera+width)/spacing+1;i++){
+ let a=i*spacing,b=pole(i);
+ ctx.save();
+ if(i===brokenPole){
+  ctx.fillStyle='#795044';ctx.fillRect(a-4,b+95,9,height);
+  const pivot=b+95;
+  ctx.translate(a,pivot);
+  ctx.rotate(-Math.min(1.7,breakTime*2));
+  ctx.translate(-a,-pivot);
+ }
+ ctx.fillStyle='#795044';ctx.fillRect(a-4,b,9,i===brokenPole?95:height);ctx.fillStyle='#b7835c';ctx.fillRect(a-3,b,3,i===brokenPole?95:height);ctx.fillStyle='#4e4844';ctx.fillRect(a-13,b+5,26,5);oval(a,b,5,5,'#41666b');
+ let s=spikes(i);if(s){shape([[a-12,b],[a,b-s],[a+12,b]],'#aa3846');shape([[a,b-s],[a+12,b],[a+3,b]],'#e66455')}
+ ctx.restore();
+ ctx.beginPath();ctx.moveTo(a,b);let next=a+spacing,attached=mode==='ready'&&x>=a&&x<next;
+ if(i===brokenSpan || i===brokenPole){
+  const drop=Math.min(240,breakTime*breakTime*260);
+  ctx.quadraticCurveTo(a+45,b+30,a+spacing*.4,b+drop);
+  ctx.moveTo(a+spacing*.65,pole(i+1)+drop);
+  ctx.quadraticCurveTo(next-30,pole(i+1)+40,next,pole(i+1));
+ }else if(attached&&pull){let knot=y+10;ctx.quadraticCurveTo((a+x)/2,knot,x,knot);ctx.quadraticCurveTo((next+x)/2,knot,next,pole(i+1))}else{ctx.quadraticCurveTo(a+spacing/2,(b+pole(i+1))/2+36,next,pole(i+1))}
+ ctx.strokeStyle='#263c45';ctx.lineWidth=3;ctx.stroke()}
+ const angle=elevation();
+ if(mode==='ready'&&pull>4){
+  const speed=launchSpeed();
+  for(let n=1;n<=15;n++){
+   const t=n*.055;
+   oval(x+speed*Math.cos(angle)*t,perch()-speed*Math.sin(angle)*t+gravity*t*t/2,2,2,'#43636b');
+  }
+ }
+ ctx.translate(x,y);
+ ctx.rotate(mode==='home' || mode==='shop' ? 0 : mode==='breaking' || (mode==='over' && brokenPole>=0) ? breakTime*6 : mode==='ready' ? -angle : Math.atan2(vy,vx));
+ ctx.translate(-x,-y);
+ drawBird(ctx,x,y,selectedBird());ctx.restore()
+}
+function frame(now){let dt=Math.min(.04,(now-previous)/1000);previous=now;for(let k=0;k<5;k++)step(dt/5);draw();requestAnimationFrame(frame)}saveWallet();showHome();requestAnimationFrame(frame)
+</script>
+</body></html>
